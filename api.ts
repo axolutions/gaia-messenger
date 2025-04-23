@@ -2,9 +2,13 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const express = require('express');
 const qrcode = require('qrcode');
 const cors = require('cors'); // Import CORS
+const axios = require('axios'); // Add axios for webhook requests
+// Load environment variables
+require('dotenv').config();
 
 const app = express();
-const port = 4000; // Porta do servidor
+const port = process.env.PORT || 4000; // Use PORT from env or default to 4000
+const webhookUrl = process.env.WEBHOOK_URL; // Get webhook URL from environment variables
 let qrCodeData = null;
 let isConnected = false;
 
@@ -44,9 +48,47 @@ client.on('ready', () => {
     // Só inicia o servidor Express depois que o WhatsApp estiver pronto
 });
 
-   app.listen(port, () => {
-        console.log(`🌐 API rodando em http://localhost:${port}`);
-    });
+// Evento para receber mensagens e enviar para o webhook
+client.on('message', async (message) => {
+    try {
+        // Obter informações do chat
+        const chat = await message.getChat();
+
+        // Buscar as mensagens do histórico (fetchMessages retorna as mensagens, não as adiciona ao chat)
+        const messages = await chat.fetchMessages({ limit: 10 });
+
+        // Preparar dados para enviar ao webhook
+        const webhookData = {
+            messageId: message.id._serialized,
+            from: message.from,
+            to: message.to,
+            body: message.body,
+            timestamp: message.timestamp,
+            chatId: chat.id._serialized,
+            chatName: chat.name,
+            history: messages.map(msg => ({
+                id: msg.id._serialized,
+                from: msg.from,
+                body: msg.body,
+                timestamp: msg.timestamp
+            }))
+        };
+
+        console.log(`📤 Enviando mensagem recebida para webhook: ${webhookUrl}`);
+        if (webhookUrl) {
+            await axios.post(webhookUrl, webhookData);
+        } else {
+            console.warn('⚠️ WEBHOOK_URL não definida no arquivo .env');
+        }
+
+    } catch (error) {
+        console.error('❌ Erro ao processar mensagem para webhook:', error);
+    }
+});
+
+app.listen(port, () => {
+    console.log(`🌐 API rodando em http://localhost:${port}`);
+});
 
 // Evento de desconexão
 client.on('disconnected', () => {
