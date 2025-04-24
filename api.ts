@@ -15,7 +15,10 @@ let isConnected = false;
 // Inicializa o WhatsApp Client com autenticação local
 const client = new Client({
     authStrategy: new LocalAuth(),
-    puppeteer: { headless: true } // Define se o navegador será visível ou não
+    puppeteer: {
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    }
 });
 
 app.use(cors());
@@ -94,6 +97,7 @@ app.listen(port, () => {
 client.on('disconnected', () => {
     console.log('⚠️ Cliente desconectado!');
     isConnected = false;
+    qrCodeData = null;
 });
 
 // Endpoint para enviar mensagens
@@ -126,6 +130,40 @@ app.get('/connect', async (req, res) => {
 // Endpoint para verificar o status do WhatsApp
 app.get('/status', (req, res) => {
     res.json({ connected: isConnected });
+});
+
+// Endpoint para desconectar a sessão atual e permitir novo login
+app.post('/disconnect', async (req, res) => {
+    try {
+        console.log('🔄 Desconectando sessão WhatsApp atual...');
+
+        // Desconectar cliente atual
+        await client.logout();
+
+        // Reinicializar cliente para gerar novo QR code
+        setTimeout(() => {
+            console.log('🔄 Reiniciando cliente WhatsApp...');
+            client.initialize();
+        }, 1000);
+
+        res.json({ success: true, message: 'Sessão desconectada com sucesso. Um novo QR code será gerado.' });
+    } catch (error) {
+        console.error('❌ Erro ao desconectar sessão:', error);
+
+        // Mesmo com erro, tentar forçar a reinicialização
+        isConnected = false;
+        qrCodeData = null;
+
+        setTimeout(() => {
+            console.log('🔄 Tentando reiniciar cliente após erro...');
+            client.initialize();
+        }, 1000);
+
+        res.status(500).json({
+            error: 'Erro ao desconectar, mas um novo QR code será gerado mesmo assim.',
+            success: true
+        });
+    }
 });
 
 // Inicializa o cliente do WhatsApp
